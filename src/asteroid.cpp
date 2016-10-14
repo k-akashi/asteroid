@@ -3,8 +3,6 @@
 #include <netlink/genl/genl.h>
 #include <netlink/genl/ctrl.h>
 #include <netlink/genl/family.h>
-#include <netlink/genl/family.h>
-#include <netlink/route/link.h>
 #include <linux/if_ether.h>
 #include <pthread.h>
 #include <sys/types.h>
