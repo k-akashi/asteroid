@@ -787,7 +787,7 @@ init_nl()
 int
 init_wlan2lan(char *pif, uint16_t port)
 {
-    int bcast;
+    int bcast = 0;
     int ifr_sock;
     uint32_t if_namelen;
     struct ifreq ifr;
@@ -859,9 +859,9 @@ recv_from_lan(void *param)
     bind(recv_sock, (struct sockaddr *)&addr, sizeof (addr));
     memset(buf, 0, MAX_BUF);
 
-    unsigned char bcast_addr[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-    unsigned char mcast_addr[] = { 0x01, 0x00, 0x5e };
-    unsigned char span_addr[] =  { 0x01, 0x80, 0xc2 };
+    //unsigned char bcast_addr[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+    //unsigned char mcast_addr[] = { 0x01, 0x00, 0x5e };
+    //unsigned char span_addr[] =  { 0x01, 0x80, 0xc2 };
 
     while (TRUE) {
         //recv_len = recv(recv_sock, buf, MAX_BUF, 0);
