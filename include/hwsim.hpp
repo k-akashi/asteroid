@@ -112,6 +112,7 @@ struct hwsim_tx_rate {
 struct packed_data {
     int32_t type; 
     struct wlan_macaddr src;
+    struct wlan_macaddr tx;
     unsigned char pad[2];
     uint32_t flags;
     struct hwsim_tx_rate tx_rates;

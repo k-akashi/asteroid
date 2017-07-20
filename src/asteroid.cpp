@@ -125,7 +125,7 @@ pktdump(uint8_t* buf, int len)
         t[7 + 3*o + (o >> 3)] = hex[c & 0xf];
         t[56 + o + (o >> 3)] = P(c);
     }
-    if (i % 16 != 0) {
+    if (len) {
         fprintf(stderr, "        %s\n", t);
     }   
     return;
@@ -303,7 +303,7 @@ string_to_wlan_macaddr(const char* str)
 } 
 
 int
-send_lan(void *data, uint32_t len, struct wlan_macaddr src, uint32_t flags, struct hwsim_tx_rate tx_rates, uint64_t cookie, int seq)
+send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr tx, uint32_t flags, struct hwsim_tx_rate tx_rates, uint64_t cookie, int seq)
 {
     int pkt_len;
     uint8_t type = 0;
@@ -315,6 +315,7 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, uint32_t flags, stru
 
     pdata.type = TX;
     pdata.src = src;
+    pdata.src = tx;
     pdata.flags = flags;
     pdata.tx_rates = tx_rates;
     pdata.cookie = cookie;
@@ -368,7 +369,8 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, uint32_t flags, stru
 }
 
 int
-send_wlan(struct wlan_macaddr *src, char *data, int len, 
+send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
+        char *data, int len, 
         uint32_t flags, struct hwsim_tx_rate *tx_rates, 
         uint64_t cookie)
 {
@@ -646,12 +648,12 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
     struct nlattr *attrs[HWSIM_ATTR_MAX + 1];
     struct nlmsghdr *nlh = nlmsg_hdr(nlmsg);
     struct genlmsghdr *gnlh = (struct genlmsghdr *)nlmsg_data(nlh);
-    struct wlan_macaddr *src;
+    struct wlan_macaddr *src, *tx;
 
     if(gnlh->cmd == HWSIM_CMD_FRAME) {
         genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
         if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
-            src = (struct wlan_macaddr *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
+            tx = (struct wlan_macaddr *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
 
             char *data = (char *)nla_data(attrs[HWSIM_ATTR_FRAME]);
             uint32_t len = nla_len(attrs[HWSIM_ATTR_FRAME]);
@@ -659,6 +661,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
             struct hwsim_tx_rate *tx_rates = (struct hwsim_tx_rate *)nla_data(attrs[HWSIM_ATTR_TX_INFO]);
             uint64_t cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
 
+            src = (struct wlan_macaddr *)(data + 10);
             uint8_t *frame_type;
             frame_type = (uint8_t *)data;
 
@@ -712,13 +715,13 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
                     break;
                 }
                 */
-                send_lan((void *)data, len, *src, flags, *tx_rates, cookie, 0);
+                send_lan((void *)data, len, *src, *tx, flags, *tx_rates, cookie, 0);
             }
             //wlan2wlan(nlmsg, src, data, len, flags, tx_rate, cookie);
 
             if (local_ack == TRUE || flags == HWSIM_TX_CTL_NO_ACK) {
                 flags |= HWSIM_TX_STAT_ACK;
-                send_tx_ack(nlmsg, src, flags, rate2signal(tx_rates->idx), tx_rates, cookie);
+                send_tx_ack(nlmsg, tx, flags, rate2signal(tx_rates->idx), tx_rates, cookie);
             }
         }
     }
@@ -772,6 +775,7 @@ init_nl()
         exit(EXIT_FAILURE);
     }
 
+    nl_socket_set_nonblocking(nlsock);
     genl_connect(nlsock);
     genl_ctrl_alloc_cache(nlsock, &cache);
 
@@ -901,6 +905,7 @@ recv_from_lan(void *param)
         len = recv_len - GNV_HDRLEN - (gnv_hdr->opt_len * 4) + 4;
 
         struct wlan_macaddr *src = &(pdata->src);
+        struct wlan_macaddr *tx = &(pdata->tx);
         struct hwsim_tx_rate *tx_rates = &(pdata->tx_rates);
         tx_rates->idx = def_rate_idx;
 
@@ -926,7 +931,7 @@ recv_from_lan(void *param)
                 //cas_unlock(&tslot_lock);
                 pthread_mutex_unlock(&tslot_lock);
             }
-            send_wlan(src, (char *)data, len, pdata->flags, tx_rates, pdata->cookie);
+            send_wlan(src, tx, (char *)data, len, pdata->flags, tx_rates, pdata->cookie);
             if (verbose == TRUE) {
                 fprintf(logfd, "----> Send to local interface\n");
                 fflush(logfd);
