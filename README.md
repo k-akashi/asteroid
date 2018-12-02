@@ -1,11 +1,5 @@
 # Asteroid: Virtual Network Wireless Emulator
 
-## Download
-
-```bash
-git clone https://shinoda-utils.jaist.ac.jp/gitroot/k-akashi/meteor-adv.git
-```
-
 ## Package install
 
 ```bash
