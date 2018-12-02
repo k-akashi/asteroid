@@ -78,14 +78,14 @@ In order to communicate between the radio interfaces of each node, it is necessa
 
 ### Frame capture(radio tap)
 
-    * from PHY module
+  * from PHY module
 
 ```bash
 ip link set up dev hwsim0
 tcpdumo -eni hwsim0
 ```
 
-    * from wlan interface
+  * from wlan interface
 
 ```bash
 iw phy phyX interface add mon0 type monitor
