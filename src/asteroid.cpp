@@ -42,6 +42,7 @@ static int array_size = 0;
 static struct wlan_macaddr *indexer;
 int daemon_flag = FALSE;
 FILE *logfd = NULL;
+int write_vaddr = 0;
 
 int verbose = FALSE;
 int print_pkt = FALSE;
@@ -653,10 +654,15 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
     if(gnlh->cmd == HWSIM_CMD_FRAME) {
         genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
         if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
-            tx = (struct wlan_macaddr *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
-
             char *data = (char *)nla_data(attrs[HWSIM_ATTR_FRAME]);
             uint32_t len = nla_len(attrs[HWSIM_ATTR_FRAME]);
+
+            if (write_vaddr) {
+                tx = (struct wlan_macaddr *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
+            }
+            else {
+                tx = (struct wlan_macaddr *)(data + 10);
+            }
             uint32_t flags = nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
             struct hwsim_tx_rate *tx_rates = (struct hwsim_tx_rate *)nla_data(attrs[HWSIM_ATTR_TX_INFO]);
             uint64_t cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
@@ -1060,12 +1066,30 @@ recv_from_hwsim(void *param)
                 fprintf(logfd, "not ethernet interface");
                 fflush(logfd);
             }
-            struct wlan_macaddr *mac = (struct wlan_macaddr *)ifr.ifr_hwaddr.sa_data;
-            put_wlan_macaddr(*mac, i);
-            if (verbose == TRUE) {
-                fprintf(logfd, "local interface: %s, MAC Address: ", ifp->devname);
-                print_wlan_macaddr((struct wlan_macaddr *)mac, 1);
-                fflush(logfd);
+
+            if (write_vaddr) {
+                struct wlan_macaddr *mac = (struct wlan_macaddr *)ifr.ifr_hwaddr.sa_data;
+                put_wlan_macaddr(*mac, i);
+                if (verbose == TRUE) {
+                    fprintf(logfd, "local interface: %s, MAC Address: ", ifp->devname);
+                    print_wlan_macaddr((struct wlan_macaddr *)mac, 1);
+                    fflush(logfd);
+                }
+            }
+            else {
+                struct wlan_macaddr mac;
+                mac.addr[0] = 0x42;
+                mac.addr[1] = 0;
+                mac.addr[2] = 0;
+                mac.addr[3] = 0;
+                mac.addr[4] = 0;
+                mac.addr[5] = 0;
+                put_wlan_macaddr(mac, i);
+                if (verbose == TRUE) {
+                    fprintf(logfd, "local interface: %s, MAC Address: ", ifp->devname);
+                    print_wlan_macaddr((struct wlan_macaddr *)&mac, 1);
+                    fflush(logfd);
+                }
             }
             ifp = ifp->next;
         }
@@ -1124,7 +1148,7 @@ main(int argc, char **argv)
     char *conf_file = NULL;
     char *logfile = NULL;
 
-    while ((opt = getopt(argc, argv, "abc:dhi:l:f:p:P:r:tvxw:")) != -1) {
+    while ((opt = getopt(argc, argv, "abc:dhi:l:f:p:P:r:tvxw:W")) != -1) {
         switch (opt) {
             case 'a':
                 local_ack = TRUE;
@@ -1180,7 +1204,13 @@ main(int argc, char **argv)
                 strcpy(in_iflist->devname, optarg);
                 in_ifnum++;
                 break;
-            }
+            case 'W':
+                write_vaddr = 1;
+                break;
+            default:
+                usage();
+                return -1;
+        }
     }
 
     if (!logfile && daemon_flag == FALSE) {
