@@ -81,6 +81,7 @@ usage()
     fprintf(stderr, "    -v                     : verbose mode\n");
     fprintf(stderr, "    -f                     : log file name\n");
     fprintf(stderr, "    -x                     : print packet dump. required -v\n");
+    fprintf(stderr, "    -W                     : backward compatibility mode (for Ubuntu 16.10).\n");
     fprintf(stderr, "    -h                     : help\n");
 }
 
