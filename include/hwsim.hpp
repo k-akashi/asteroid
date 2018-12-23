@@ -24,6 +24,8 @@
 #define IEEE80211_MAX_RATES_PER_TX  5
 #define IEEE80211_AVAILABLE_RATES   12
 
+#define ETH_ALEN    6
+
 #define MAX_POOL    4096
 #define MAX_BUF     2048
 

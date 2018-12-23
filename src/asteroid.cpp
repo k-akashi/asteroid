@@ -58,7 +58,7 @@ int tslot_emu  = FALSE;
 pthread_mutex_t tslot_lock = PTHREAD_MUTEX_INITIALIZER;
 int local_ack  = FALSE;
 int link_rate = 54;
-int def_rate_idx = 0;
+int def_rate_idx = 11;
 int ofdm_idx = -1;
 int dsss_idx = -1;
 uint32_t offset_t = 0;
@@ -68,7 +68,9 @@ uint32_t vni = DEFAULT_VNI;
 void
 usage()
 {
-    fprintf(stderr, "Usage: asteroid -w <WIRELESS_IFNAME> -p <PHYSICAL_IFNAME> [-i VNI] [-l <LOGFILE> [-t -r <RATE> [-l <LATENCY>]] [-v] [-x] [-h]\n");
+    fprintf(stderr, "Usage: asteroid -w <WLAN_IFNAME> -p <PHYSICAL_IFNAME> ");
+    fprintf(stderr, "[-i VNI] [-l <LOGFILE> [-t -r <RATE> [-l <LATENCY>]] ");
+    fprintf(stderr, "[-v] [-x] [-h]\n");
     fprintf(stderr, "    -c CONF_FILE           : wireless interface file\n");
     fprintf(stderr, "    -w WIRELESS_IFNAME     : wireless interface\n");
     fprintf(stderr, "    -p PHYSICAL_IFNAME     : ethernet interface\n");
@@ -192,8 +194,10 @@ dump_macaddress(int ifnum)
 {
     int i;
     void *ptr = indexer;
+    struct wlan_macaddr *addr;
     for (i = 0; i < ifnum; i++) {
-        print_wlan_macaddr((struct wlan_macaddr *)ptr, 1);
+        addr = (struct wlan_macaddr *)ptr;
+        fprintf(logfd, MAC_FMT "\n", MAC_ARG(addr->addr));
         ptr = (char *)ptr + sizeof (struct wlan_macaddr);
     }
 }
@@ -299,7 +303,7 @@ string_to_wlan_macaddr(const char* str)
     mac.addr[4] = a[4];
     mac.addr[5] = a[5];
 
-    print_wlan_macaddr(&mac, 1);
+    printf(MAC_FMT, MAC_ARG(mac.addr));
 
     return mac;
 } 
@@ -353,9 +357,7 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr 
     }
 
     if (verbose == TRUE) {
-        fprintf(logfd, "---> Send external from: ");
-        print_wlan_macaddr(&src, 1);
-        fflush(logfd);
+        fprintf(logfd, "---> Send external from: " MAC_FMT "\n", MAC_ARG(src.addr));
     }
 
     if (sendto(send_sock, (void *)gnv, pkt_len, 0, (struct sockaddr *)&daddr, sizeof (daddr)) < 0) {
@@ -392,17 +394,15 @@ send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
         }
 
         dst = get_wlan_macaddr(i);
+        printf(MAC_FMT "\n", MAC_ARG(dst->addr));
         if (memcmp(src, dst, sizeof (struct wlan_macaddr)) == 0) {
             nlmsg_free(nlmsg);
             continue;
         }
 
         if (verbose == TRUE) {
-            fprintf(logfd, "---> Send local    from: ");
-            print_wlan_macaddr(src, 0);
-            fprintf(logfd, " to: ");
-            print_wlan_macaddr(dst, 1);
-            fflush(logfd);
+            fprintf(logfd, "---> Send local    from: " MAC_FMT, MAC_ARG(src->addr));
+            fprintf(logfd, " to: " MAC_FMT "\n", MAC_ARG(dst->addr));
             if (print_pkt) {
                 pktdump((uint8_t *)data, len);
             }
@@ -410,14 +410,11 @@ send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
 
         genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(family), 
                 0, NLM_F_REQUEST, HWSIM_CMD_FRAME, VERSION_NR);
-        rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_RECEIVER, sizeof (struct wlan_macaddr), dst);
+        rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_RECEIVER, ETH_ALEN, dst->addr);
         if (rc != 0) {
             fprintf(logfd, "Error nla_put HWSIM_ATTR_ADDR_RECEIVER filling payload\n");
-            fprintf(logfd, "send: ");
-            print_wlan_macaddr(src, 0);
-            fprintf(logfd, " -> ");
-            print_wlan_macaddr(dst, 1);
-            fflush(logfd);
+            fprintf(logfd, "send: " MAC_FMT " -> " MAC_FMT "\n", 
+                    MAC_ARG(src->addr), MAC_ARG(dst->addr));
             nlmsg_free(nlmsg);
             continue;
         }
@@ -456,7 +453,7 @@ send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
  
 int
 send_tx_ack(struct nl_msg *nlmsg, struct wlan_macaddr *src, unsigned int flags, int signal,
-        struct hwsim_tx_rate *tx_attempts, unsigned long cookie)
+        struct hwsim_tx_rate *tx_attempts, uint32_t tx_rate_len, unsigned long cookie)
 {
     int rc;
     
@@ -469,7 +466,8 @@ send_tx_ack(struct nl_msg *nlmsg, struct wlan_macaddr *src, unsigned int flags, 
     rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_TRANSMITTER, sizeof (struct wlan_macaddr), src);
     rc = nla_put_u32(nlmsg, HWSIM_ATTR_FLAGS, flags);
     rc = nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, signal);
-    rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO, IEEE80211_MAX_RATES_PER_TX * sizeof (struct hwsim_tx_rate), tx_attempts);
+    //rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO, IEEE80211_MAX_RATES_PER_TX * sizeof (struct hwsim_tx_rate), tx_attempts);
+    rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO, tx_rate_len * sizeof (struct hwsim_tx_rate), tx_attempts);
     rc = nla_put_u64(nlmsg, HWSIM_ATTR_COOKIE, cookie);
 
     if(rc != 0) {
@@ -480,12 +478,13 @@ send_tx_ack(struct nl_msg *nlmsg, struct wlan_macaddr *src, unsigned int flags, 
     }
 
     if (verbose == TRUE) {
-        fprintf(logfd, "----> Send Ack     to:   ");
-        print_wlan_macaddr(src, 1);
-        fflush(logfd);
+        fprintf(logfd, "----> Send Ack     to:   " MAC_FMT "\n", MAC_ARG(src->addr));
     }
 
-    nl_send_auto_complete(nlsock, nlmsg);
+    rc = nl_send_auto_complete(nlsock, nlmsg);
+    if (rc < 0) {
+        fprintf(logfd, "Error[%s]: %s(%d)\n", __func__, nl_geterror(rc), rc);
+    }
     nlmsg_free(nlmsg);
 
     return 0;
@@ -666,6 +665,8 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
             }
             uint32_t flags = nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
             struct hwsim_tx_rate *tx_rates = (struct hwsim_tx_rate *)nla_data(attrs[HWSIM_ATTR_TX_INFO]);
+            uint32_t tx_rate_len = nla_len(attrs[HWSIM_ATTR_TX_INFO]);
+            printf("tx_rate_len: %u\n", tx_rate_len);
             uint64_t cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
 
             src = (struct wlan_macaddr *)(data + 10);
@@ -673,9 +674,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
             frame_type = (uint8_t *)data;
 
             if (verbose == TRUE) {
-                fprintf(logfd, "Recv local        from: ");
-                print_wlan_macaddr(src, 1);
-                fflush(logfd);
+                fprintf(logfd, "Recv local        from: " MAC_FMT "\n", MAC_ARG(src->addr));
                 if (print_pkt) {
                     pktdump((uint8_t *)data, len);
                 }
@@ -693,7 +692,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
             tx_rate.idx   = tx_rates[round].idx;
             tx_rate.count = tx_rates[round].count;
 */
-            //tx_rates->idx = def_rate_idx;
+            tx_rates->idx = def_rate_idx;
 
             if (tslot_emu) {
                 int rate = link_rate;
@@ -728,7 +727,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
 
             if (local_ack == TRUE || flags == HWSIM_TX_CTL_NO_ACK) {
                 flags |= HWSIM_TX_STAT_ACK;
-                send_tx_ack(nlmsg, tx, flags, rate2signal(tx_rates->idx), tx_rates, cookie);
+                send_tx_ack(nlmsg, tx, flags, rate2signal(tx_rates->idx), tx_rates, tx_rate_len, cookie);
             }
         }
     }
@@ -917,9 +916,7 @@ recv_from_lan(void *param)
         tx_rates->idx = def_rate_idx;
 
         if (verbose == TRUE) {
-            fprintf(logfd, "Recv external     from: ");
-            print_wlan_macaddr(src, 1);
-            fflush(logfd);
+            fprintf(logfd, "Recv external     from: " MAC_FMT "\n", MAC_ARG(src->addr));
         }
 
         if (pdata->type == TX) {
@@ -1003,7 +1000,16 @@ recv_from_lan(void *param)
             // send tx_ack to local interface
             int signal;
             signal = rate2signal(pdata->tx_rates.idx);
-            send_tx_ack(NULL, &(pdata->src), pdata->flags, signal, &(pdata->tx_rates), pdata->cookie);
+            //struct wlan_macaddr hwaddr;
+            //hwaddr.addr[0] = 0x42;
+            //hwaddr.addr[1] = 0;
+            //hwaddr.addr[2] = 0;
+            //hwaddr.addr[3] = 0;
+            //hwaddr.addr[4] = 0;
+            //hwaddr.addr[5] = 0;
+            //printf("Signal: %d\n", signal);
+            //send_tx_ack(NULL, &hwaddr, pdata->flags, signal, &(pdata->tx_rates), 8, pdata->cookie);
+            send_tx_ack(NULL, &(pdata->src), pdata->flags, signal, &(pdata->tx_rates), 8, pdata->cookie);
             if (verbose == TRUE) {
                 fprintf(logfd, "----> Send ACK to local interface\n");
                 fflush(logfd);
@@ -1072,9 +1078,8 @@ recv_from_hwsim(void *param)
                 struct wlan_macaddr *mac = (struct wlan_macaddr *)ifr.ifr_hwaddr.sa_data;
                 put_wlan_macaddr(*mac, i);
                 if (verbose == TRUE) {
-                    fprintf(logfd, "local interface: %s, MAC Address: ", ifp->devname);
-                    print_wlan_macaddr((struct wlan_macaddr *)mac, 1);
-                    fflush(logfd);
+                    fprintf(logfd, "local interface: %s, MAC Address: " MAC_FMT "\n",
+                            ifp->devname, MAC_ARG(mac->addr));
                 }
             }
             else {
@@ -1087,9 +1092,8 @@ recv_from_hwsim(void *param)
                 mac.addr[5] = 0;
                 put_wlan_macaddr(mac, i);
                 if (verbose == TRUE) {
-                    fprintf(logfd, "local interface: %s, MAC Address: ", ifp->devname);
-                    print_wlan_macaddr((struct wlan_macaddr *)&mac, 1);
-                    fflush(logfd);
+                    fprintf(logfd, "local interface: %s, MAC Address: " MAC_FMT "\n",
+                            ifp->devname, MAC_ARG(mac.addr));
                 }
             }
             ifp = ifp->next;
