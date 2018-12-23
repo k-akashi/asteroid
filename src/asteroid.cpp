@@ -403,7 +403,7 @@ send_wlan(struct asteroid *ctx, struct hwsim_frame *frame)
         }
 
         genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, 
-                genl_family_get_id(ctx->family), 
+                ctx->family_id, 
                 0, NLM_F_REQUEST, HWSIM_CMD_FRAME, VERSION_NR);
         rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_RECEIVER, ETH_ALEN, dst->addr);
         if (rc != 0) {
@@ -457,7 +457,7 @@ send_tx_ack(struct asteroid *ctx, struct hwsim_frame *frame)
     nlmsg = nlmsg_alloc();
     frame->flags |= HWSIM_TX_STAT_ACK;
     
-    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(ctx->family),
+    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id,
             0, NLM_F_REQUEST, HWSIM_CMD_TX_INFO_FRAME, VERSION_NR);
     
     rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN, frame->wlanaddr);
@@ -766,7 +766,7 @@ send_register_msg(struct asteroid *ctx)
         return -1;
     }
 
-    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(ctx->family), 0, NLM_F_REQUEST, 1, 1);
+    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id, 0, NLM_F_REQUEST, 1, 1);
     nl_send_auto_complete(ctx->sock, nlmsg);
     nlmsg_free(nlmsg);
 
@@ -797,6 +797,7 @@ init_nl(struct asteroid *ctx)
         printf("cannot search family\n");
         exit(EXIT_FAILURE);
     }
+    ctx->family_id = genl_family_get_id(ctx->family);
 
     nl_cb_set(ctx->cb, NL_CB_MSG_IN, NL_CB_CUSTOM, wlan_frame_cb, (void *)ctx);
 }
