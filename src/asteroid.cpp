@@ -28,10 +28,6 @@
 #include "config.hpp"
 #include "hwsim.hpp"
 
-struct nl_sock *nlsock;
-struct nl_cb *cb;
-struct nl_cache *cache;
-struct genl_family *family;
 int in_ifnum = 0;
 struct iflist *in_ifhead = NULL;
 struct iflist *in_iflist = NULL;
@@ -308,8 +304,9 @@ string_to_wlan_macaddr(const char* str)
     return mac;
 } 
 
+//send_lan(uint8_t *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr tx, uint32_t flags, struct hwsim_tx_rate *tx_rates, uint64_t cookie, int seq)
 int
-send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr tx, uint32_t flags, struct hwsim_tx_rate tx_rates, uint64_t cookie, int seq)
+send_lan(struct asteroid *ctx, struct hwsim_frame *frame, int seq)
 {
     int pkt_len;
     uint8_t type = 0;
@@ -320,11 +317,11 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr 
     add_gnv_hdr(gnv, vni, GNV_WL_BRIDGE);
 
     pdata.type = TX;
-    pdata.src = src;
-    pdata.src = tx;
-    pdata.flags = flags;
-    pdata.tx_rates = tx_rates;
-    pdata.cookie = cookie;
+    memcpy(pdata.src.addr, frame->wlanaddr, ETH_ALEN);
+    memcpy(pdata.src.addr, frame->phyaddr, ETH_ALEN);
+    pdata.flags = frame->flags;
+    memcpy(&(pdata.tx_rates), frame->tx_rates, 8);
+    pdata.cookie = frame->cookie;
     pdata.seq = seq;
 
     pdata.tx_rates.idx = def_rate_idx;
@@ -338,7 +335,7 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr 
         return -1;
     }
 
-    pkt_len = add_gnv_opt(gnv, 1, 4, (uint8_t *)data);
+    pkt_len = add_gnv_opt(gnv, 1, 4, frame->data);
     if (pkt_len == -1) {
         fprintf(logfd, "cannot add option header\n");
         fflush(logfd);
@@ -347,7 +344,7 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr 
         return -1;
     }
 
-    pkt_len = add_gnv_payload(gnv, (uint8_t *)data + 4, len - 4);
+    pkt_len = add_gnv_payload(gnv, frame->data + 4, frame->data_len - 4);
     if (pkt_len == -1) {
         fprintf(logfd, "cannot add original frame\n");
         fflush(logfd);
@@ -357,7 +354,7 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr 
     }
 
     if (verbose == TRUE) {
-        fprintf(logfd, "---> Send external from: " MAC_FMT "\n", MAC_ARG(src.addr));
+        fprintf(logfd, "---> Send external from: " MAC_FMT "\n", MAC_ARG(frame->wlanaddr));
     }
 
     if (sendto(send_sock, (void *)gnv, pkt_len, 0, (struct sockaddr *)&daddr, sizeof (daddr)) < 0) {
@@ -373,16 +370,13 @@ send_lan(void *data, uint32_t len, struct wlan_macaddr src, struct wlan_macaddr 
 }
 
 int
-send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
-        char *data, int len, 
-        uint32_t flags, struct hwsim_tx_rate *tx_rates, 
-        uint64_t cookie)
+send_wlan(struct asteroid *ctx, struct hwsim_frame *frame)
 {
     int rc, i;
     struct wlan_macaddr *dst;
     struct nl_msg *nlmsg;
 
-    tx_rates->idx = def_rate_idx;
+    frame->tx_rates->idx = def_rate_idx;
 
     for (i = 0; i < in_ifnum; i++) {
         nlmsg = nlmsg_alloc();
@@ -395,44 +389,45 @@ send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
 
         dst = get_wlan_macaddr(i);
         printf(MAC_FMT "\n", MAC_ARG(dst->addr));
-        if (memcmp(src, dst, sizeof (struct wlan_macaddr)) == 0) {
+        if (memcmp(frame->wlanaddr, dst->addr, ETH_ALEN) == 0) {
             nlmsg_free(nlmsg);
             continue;
         }
 
         if (verbose == TRUE) {
-            fprintf(logfd, "---> Send local    from: " MAC_FMT, MAC_ARG(src->addr));
+            fprintf(logfd, "---> Send local    from: " MAC_FMT, MAC_ARG(frame->wlanaddr));
             fprintf(logfd, " to: " MAC_FMT "\n", MAC_ARG(dst->addr));
             if (print_pkt) {
-                pktdump((uint8_t *)data, len);
+                pktdump(frame->data, frame->data_len);
             }
         }
 
-        genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(family), 
+        genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, 
+                genl_family_get_id(ctx->family), 
                 0, NLM_F_REQUEST, HWSIM_CMD_FRAME, VERSION_NR);
         rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_RECEIVER, ETH_ALEN, dst->addr);
         if (rc != 0) {
             fprintf(logfd, "Error nla_put HWSIM_ATTR_ADDR_RECEIVER filling payload\n");
             fprintf(logfd, "send: " MAC_FMT " -> " MAC_FMT "\n", 
-                    MAC_ARG(src->addr), MAC_ARG(dst->addr));
+                    MAC_ARG(frame->wlanaddr), MAC_ARG(dst->addr));
             nlmsg_free(nlmsg);
             continue;
         }
-        rc = nla_put(nlmsg, HWSIM_ATTR_FRAME, len, data);
+        rc = nla_put(nlmsg, HWSIM_ATTR_FRAME, frame->data_len, frame->data);
         if (rc != 0) {
             fprintf(logfd, "Error nla_put HWSIM_ATTR_FRAME filling payload\n");
             fflush(logfd);
             nlmsg_free(nlmsg);
             continue;
         }
-        rc = nla_put_u32(nlmsg, HWSIM_ATTR_RX_RATE, tx_rates->idx);
+        rc = nla_put_u32(nlmsg, HWSIM_ATTR_RX_RATE, frame->tx_rates->idx);
         if (rc != 0) {
             fprintf(logfd, "Error nla_put_u32 HWSIM_ATTR_RX_RATE filling payload\n");
             fflush(logfd);
             nlmsg_free(nlmsg);
             continue;
         }
-        rc = nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, rate2signal(tx_rates->idx));
+        rc = nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, frame->signal);
         if (rc != 0) {
             fprintf(logfd, "Error nla_put_u32 SIGNAL filling payload\n");
             fflush(logfd);
@@ -440,7 +435,7 @@ send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
             continue;
         }
         
-        rc = nl_send_auto_complete(nlsock, nlmsg);
+        rc = nl_send_auto_complete(ctx->sock, nlmsg);
         if (rc < 0) {
             fprintf(logfd, "Error nl_send_auto_complete filling payload: %d\n", rc);
             fflush(logfd);
@@ -451,24 +446,26 @@ send_wlan(struct wlan_macaddr *src, struct wlan_macaddr *tx,
     return 0;
 }
  
+//send_tx_ack(struct asteroid *ctx, struct nl_msg *nlmsg, struct wlan_macaddr *src, unsigned int flags, int signal,
+//        struct hwsim_tx_rate *tx_attempts, uint32_t tx_rate_len, unsigned long cookie)
 int
-send_tx_ack(struct nl_msg *nlmsg, struct wlan_macaddr *src, unsigned int flags, int signal,
-        struct hwsim_tx_rate *tx_attempts, uint32_t tx_rate_len, unsigned long cookie)
+send_tx_ack(struct asteroid *ctx, struct hwsim_frame *frame)
 {
     int rc;
+    struct nl_msg *nlmsg;
     
     nlmsg = nlmsg_alloc();
-    flags |= HWSIM_TX_STAT_ACK;
+    frame->flags |= HWSIM_TX_STAT_ACK;
     
-    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(family),
+    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(ctx->family),
             0, NLM_F_REQUEST, HWSIM_CMD_TX_INFO_FRAME, VERSION_NR);
     
-    rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_TRANSMITTER, sizeof (struct wlan_macaddr), src);
-    rc = nla_put_u32(nlmsg, HWSIM_ATTR_FLAGS, flags);
-    rc = nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, signal);
+    rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN, frame->wlanaddr);
+    rc = nla_put_u32(nlmsg, HWSIM_ATTR_FLAGS, frame->flags);
+    rc = nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, frame->signal);
     //rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO, IEEE80211_MAX_RATES_PER_TX * sizeof (struct hwsim_tx_rate), tx_attempts);
-    rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO, tx_rate_len * sizeof (struct hwsim_tx_rate), tx_attempts);
-    rc = nla_put_u64(nlmsg, HWSIM_ATTR_COOKIE, cookie);
+    rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO, frame->tx_rate_cnt * sizeof (struct hwsim_tx_rate), frame->tx_rates);
+    rc = nla_put_u64(nlmsg, HWSIM_ATTR_COOKIE, frame->cookie);
 
     if(rc != 0) {
         fprintf(logfd, "Error filling payload\n");
@@ -478,10 +475,11 @@ send_tx_ack(struct nl_msg *nlmsg, struct wlan_macaddr *src, unsigned int flags, 
     }
 
     if (verbose == TRUE) {
-        fprintf(logfd, "----> Send Ack     to:   " MAC_FMT "\n", MAC_ARG(src->addr));
+        fprintf(logfd, "----> Send Ack     to:   " MAC_FMT "\n",
+                MAC_ARG(frame->wlanaddr));
     }
 
-    rc = nl_send_auto_complete(nlsock, nlmsg);
+    rc = nl_send_auto_complete(ctx->sock, nlmsg);
     if (rc < 0) {
         fprintf(logfd, "Error[%s]: %s(%d)\n", __func__, nl_geterror(rc), rc);
     }
@@ -649,34 +647,41 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
     struct nlattr *attrs[HWSIM_ATTR_MAX + 1];
     struct nlmsghdr *nlh = nlmsg_hdr(nlmsg);
     struct genlmsghdr *gnlh = (struct genlmsghdr *)nlmsg_data(nlh);
-    struct wlan_macaddr *src, *tx;
+    struct wlan_macaddr src;
+    struct asteroid *ctx = (struct asteroid *)arg;
+    struct hwsim_frame frame;
+    struct hwsim_tx_rate *tx_rates;
 
     if(gnlh->cmd == HWSIM_CMD_FRAME) {
         genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
         if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
-            char *data = (char *)nla_data(attrs[HWSIM_ATTR_FRAME]);
-            uint32_t len = nla_len(attrs[HWSIM_ATTR_FRAME]);
+            frame.data = (uint8_t *)nla_data(attrs[HWSIM_ATTR_FRAME]);
+            frame.data_len = nla_len(attrs[HWSIM_ATTR_FRAME]);
 
             if (write_vaddr) {
-                tx = (struct wlan_macaddr *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
+                frame.phyaddr = (uint8_t *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
             }
             else {
-                tx = (struct wlan_macaddr *)(data + 10);
+                frame.phyaddr = frame.data + 10;
             }
-            uint32_t flags = nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
-            struct hwsim_tx_rate *tx_rates = (struct hwsim_tx_rate *)nla_data(attrs[HWSIM_ATTR_TX_INFO]);
-            uint32_t tx_rate_len = nla_len(attrs[HWSIM_ATTR_TX_INFO]);
-            printf("tx_rate_len: %u\n", tx_rate_len);
-            uint64_t cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
+            frame.flags = nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
+            tx_rates = (struct hwsim_tx_rate *)nla_data(attrs[HWSIM_ATTR_TX_INFO]);
+            frame.tx_rate_cnt = nla_len(attrs[HWSIM_ATTR_TX_INFO]);
+            memcpy(frame.tx_rates, tx_rates, frame.tx_rate_cnt);
+            printf("tx_rate_len: %u\n", frame.tx_rate_cnt);
+            frame.cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
+            frame.signal = rate2signal(frame.tx_rates->idx);
 
-            src = (struct wlan_macaddr *)(data + 10);
+            frame.wlanaddr = frame.data + 10;
+            memcpy(src.addr, frame.wlanaddr, ETH_ALEN);
             uint8_t *frame_type;
-            frame_type = (uint8_t *)data;
+            frame_type = (uint8_t *)frame.data;
 
             if (verbose == TRUE) {
-                fprintf(logfd, "Recv local        from: " MAC_FMT "\n", MAC_ARG(src->addr));
+                fprintf(logfd, "Recv local        from: " MAC_FMT "\n", 
+                        MAC_ARG(frame.wlanaddr));
                 if (print_pkt) {
-                    pktdump((uint8_t *)data, len);
+                    pktdump(frame.data, frame.data_len);
                 }
             }
 
@@ -692,7 +697,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
             tx_rate.idx   = tx_rates[round].idx;
             tx_rate.count = tx_rates[round].count;
 */
-            tx_rates->idx = def_rate_idx;
+            frame.tx_rates->idx = def_rate_idx;
 
             if (tslot_emu) {
                 int rate = link_rate;
@@ -702,7 +707,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
 
                 //cas_lock(&tslot_lock);
                 pthread_mutex_lock(&tslot_lock);
-                wait_sendtime(len, rate, PLCP_11A);
+                wait_sendtime(frame.data_len, rate, PLCP_11A);
                 pthread_mutex_unlock(&tslot_lock);
                 //cas_unlock(&tslot_lock);
             }
@@ -721,13 +726,15 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
                     break;
                 }
                 */
-                send_lan((void *)data, len, *src, *tx, flags, *tx_rates, cookie, 0);
+                //send_lan(frame.data, frame.data_len, *src, *tx, frame.flags, frame.tx_rates, frame.cookie, 0);
+                send_lan(ctx, &frame, 0);
             }
             //wlan2wlan(nlmsg, src, data, len, flags, tx_rate, cookie);
 
-            if (local_ack == TRUE || flags == HWSIM_TX_CTL_NO_ACK) {
-                flags |= HWSIM_TX_STAT_ACK;
-                send_tx_ack(nlmsg, tx, flags, rate2signal(tx_rates->idx), tx_rates, tx_rate_len, cookie);
+            if (local_ack == TRUE || frame.flags == HWSIM_TX_CTL_NO_ACK) {
+                frame.flags |= HWSIM_TX_STAT_ACK;
+                //send_tx_ack(ctx, nlmsg, &src, frame.flags, frame.signal, frame.tx_rates, frame.tx_rate_cnt, frame.cookie);
+                send_tx_ack(ctx, &frame);
             }
         }
     }
@@ -751,7 +758,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
 
 // Register to hwsim
 int
-send_register_msg()
+send_register_msg(struct asteroid *ctx)
 {
     struct nl_msg *nlmsg;
     nlmsg = nlmsg_alloc();
@@ -759,39 +766,39 @@ send_register_msg()
         return -1;
     }
 
-    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(family), 0, NLM_F_REQUEST, 1, 1);
-    nl_send_auto_complete(nlsock, nlmsg);
+    genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, genl_family_get_id(ctx->family), 0, NLM_F_REQUEST, 1, 1);
+    nl_send_auto_complete(ctx->sock, nlmsg);
     nlmsg_free(nlmsg);
 
     return 0;
 }
 
 void
-init_nl()
+init_nl(struct asteroid *ctx)
 {
-    cb = nl_cb_alloc(NL_CB_CUSTOM);
-    if (!cb) {
+    ctx->cb = nl_cb_alloc(NL_CB_CUSTOM);
+    if (!ctx->cb) {
         printf("cannot alloc cb\n");
         exit(EXIT_FAILURE);
     }
 
-    nlsock = nl_socket_alloc_cb(cb);
-    if (!nlsock) {
+    ctx->sock = nl_socket_alloc_cb(ctx->cb);
+    if (!ctx->sock) {
         printf("cannot alloc socket\n");
         exit(EXIT_FAILURE);
     }
 
-    nl_socket_set_nonblocking(nlsock);
-    genl_connect(nlsock);
-    genl_ctrl_alloc_cache(nlsock, &cache);
+    nl_socket_set_nonblocking(ctx->sock);
+    genl_connect(ctx->sock);
+    genl_ctrl_alloc_cache(ctx->sock, &(ctx->cache));
 
-    family = genl_ctrl_search_by_name(cache, "MAC80211_HWSIM");
-    if (!family) {
+    ctx->family = genl_ctrl_search_by_name(ctx->cache, "MAC80211_HWSIM");
+    if (!ctx->family) {
         printf("cannot search family\n");
         exit(EXIT_FAILURE);
     }
 
-    nl_cb_set(cb, NL_CB_MSG_IN, NL_CB_CUSTOM, wlan_frame_cb, NULL);
+    nl_cb_set(ctx->cb, NL_CB_MSG_IN, NL_CB_CUSTOM, wlan_frame_cb, (void *)ctx);
 }
 
 int
@@ -854,9 +861,11 @@ recv_from_lan(void *param)
 {
     void *buf;
     int recv_sock;
-    int len, recv_len;
+    int recv_len;
     struct sockaddr_in addr;
     struct sockaddr_in from;
+    struct asteroid *ctx = (struct asteroid *)param;
+    struct hwsim_frame frame;
     socklen_t addr_len = sizeof(struct sockaddr_in);
 
     buf = malloc(MAX_BUF);
@@ -873,11 +882,11 @@ recv_from_lan(void *param)
     //unsigned char mcast_addr[] = { 0x01, 0x00, 0x5e };
     //unsigned char span_addr[] =  { 0x01, 0x80, 0xc2 };
 
-    while (TRUE) {
+    for (;;) {
         //recv_len = recv(recv_sock, buf, MAX_BUF, 0);
         recv_len = recvfrom(recv_sock, buf, MAX_BUF, 0, (struct sockaddr *)&from, &addr_len);
         if (recv_len == 0) {
-            fprintf(logfd, "[recv_from_lan] receive length 0.\n");
+            fprintf(logfd, "[%s] receive length 0.\n", __func__);
             continue;
         }
         // 16777343 = 127.0.0.1;
@@ -890,14 +899,14 @@ recv_from_lan(void *param)
         if (vni != get_gnv_vni(gnv_hdr)) {
             // Drop different VNI frame;
             if (verbose == TRUE) {
-                fprintf(logfd, "[recv_from_lan] Different VNI\n");
+                fprintf(logfd, "[%s] Different VNI\n", __func__);
             }
             continue;
         }
         if (ntohs(gnv_hdr->proto_type) != GNV_WL_BRIDGE) {
             // Drop different proto type;
             if (verbose == TRUE) {
-                fprintf(logfd, "[recv_from_lan] Invalid protocol type\n");
+                fprintf(logfd, "[%s] Invalid protocol type\n", __func__);
             }
             continue;
         }
@@ -906,23 +915,23 @@ recv_from_lan(void *param)
         gnv_opt = get_gnv_opt((uint8_t *)buf);
         struct packed_data *pdata = (struct packed_data *)(gnv_opt + 1);
 
-        uint8_t *data;
-        data = (uint8_t *)buf + GNV_HDRLEN + (gnv_hdr->opt_len * 4) - 4;
-        len = recv_len - GNV_HDRLEN - (gnv_hdr->opt_len * 4) + 4;
+        frame.data = (uint8_t *)buf + GNV_HDRLEN + (gnv_hdr->opt_len * 4) - 4;
+        frame.data_len = recv_len - GNV_HDRLEN - (gnv_hdr->opt_len * 4) + 4;
 
-        struct wlan_macaddr *src = &(pdata->src);
-        struct wlan_macaddr *tx = &(pdata->tx);
+        frame.wlanaddr = pdata->src.addr;
+        frame.phyaddr = pdata->tx.addr;
+
         struct hwsim_tx_rate *tx_rates = &(pdata->tx_rates);
         tx_rates->idx = def_rate_idx;
 
         if (verbose == TRUE) {
-            fprintf(logfd, "Recv external     from: " MAC_FMT "\n", MAC_ARG(src->addr));
+            fprintf(logfd, "Recv external     from: " MAC_FMT "\n", 
+                    MAC_ARG(frame.wlanaddr));
         }
 
         if (pdata->type == TX) {
             if (tslot_emu) {
-                uint8_t *frame_type;
-                frame_type = (uint8_t *)data;
+                uint8_t *frame_type = frame.data;
 
                 int rate = link_rate;
                 if (beacon == TRUE && (*frame_type & 0x0f) == 8) {
@@ -935,7 +944,7 @@ recv_from_lan(void *param)
                 //cas_unlock(&tslot_lock);
                 pthread_mutex_unlock(&tslot_lock);
             }
-            send_wlan(src, tx, (char *)data, len, pdata->flags, tx_rates, pdata->cookie);
+            send_wlan(ctx, &frame);
             if (verbose == TRUE) {
                 fprintf(logfd, "----> Send to local interface\n");
                 fflush(logfd);
@@ -1009,7 +1018,8 @@ recv_from_lan(void *param)
             //hwaddr.addr[5] = 0;
             //printf("Signal: %d\n", signal);
             //send_tx_ack(NULL, &hwaddr, pdata->flags, signal, &(pdata->tx_rates), 8, pdata->cookie);
-            send_tx_ack(NULL, &(pdata->src), pdata->flags, signal, &(pdata->tx_rates), 8, pdata->cookie);
+            //send_tx_ack(ctx, NULL, &(pdata->src), pdata->flags, signal, &(pdata->tx_rates), 8, pdata->cookie);
+            send_tx_ack(ctx, &frame);
             if (verbose == TRUE) {
                 fprintf(logfd, "----> Send ACK to local interface\n");
                 fflush(logfd);
@@ -1026,8 +1036,9 @@ recv_from_lan(void *param)
 void *
 recv_from_hwsim(void *param)
 {
+    struct asteroid *ctx = (struct asteroid *)param;
 
-    init_nl();
+    init_nl(ctx);
     if (!indexer) {
         init_probability(in_ifnum);
     }
@@ -1101,7 +1112,7 @@ recv_from_hwsim(void *param)
     }
 
     int ret;
-    ret = send_register_msg();
+    ret = send_register_msg(ctx);
     if (ret != 0) {
         fprintf(logfd, "Cannot send_register_msg: %d\n", ret);
         fflush(logfd);
@@ -1109,17 +1120,17 @@ recv_from_hwsim(void *param)
     }
 
     while (1) {
-        nl_recvmsgs_default(nlsock);
+        nl_recvmsgs_default(ctx->sock);
     }
 
-    free(nlsock);
-    free(cb);
-    free(cache);
-    free(family);
+    free(ctx->sock);
+    free(ctx->cb);
+    free(ctx->cache);
+    free(ctx->family);
 }
 
 int
-asteroid_loop()
+asteroid_loop(struct asteroid *ctx)
 {
     pthread_t local_th;
     pthread_t remote_th;
@@ -1129,12 +1140,12 @@ asteroid_loop()
     //    perror("pthread_create");
     //}
 
-    if (pthread_create(&local_th, NULL, recv_from_hwsim, NULL) != 0) {
+    if (pthread_create(&local_th, NULL, recv_from_hwsim, (void *)ctx) != 0) {
         perror("pthread_create");
     }
 
     if(pif != NULL) {
-        if (pthread_create(&remote_th, NULL, recv_from_lan, NULL) != 0) {
+        if (pthread_create(&remote_th, NULL, recv_from_lan, (void *)ctx) != 0) {
             perror("pthread_create");
         }
     }
@@ -1152,6 +1163,8 @@ main(int argc, char **argv)
     int opt;
     char *conf_file = NULL;
     char *logfile = NULL;
+
+    struct asteroid *ctx;
 
     while ((opt = getopt(argc, argv, "abc:dhi:l:f:p:P:r:tvxw:W")) != -1) {
         switch (opt) {
@@ -1218,6 +1231,8 @@ main(int argc, char **argv)
         }
     }
 
+    ctx = (struct asteroid *)malloc(sizeof (struct asteroid));
+
     if (!logfile && daemon_flag == FALSE) {
         logfd = stdout;
     }
@@ -1251,13 +1266,13 @@ main(int argc, char **argv)
     }
     if (daemon_flag == TRUE) {
         if (daemon(0, 0) == 0) {
-            return asteroid_loop();
+            return asteroid_loop(ctx);
         }
         else {
             perror("daemon");
         }
     }
     else {
-        return asteroid_loop();
+        return asteroid_loop(ctx);
     }
 }

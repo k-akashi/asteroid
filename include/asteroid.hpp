@@ -19,3 +19,11 @@ struct pkt_pool {
     struct timeval * tv;
     uint32_t used;
 };
+
+struct asteroid {
+    struct nl_sock *sock;
+    struct nl_cb *cb;
+    struct nl_cache *cache;
+    struct genl_family *family;
+    int family_id;
+};

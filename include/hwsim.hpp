@@ -19,6 +19,8 @@
 #define HWSIM_ATTR_COOKIE           8
 #define HWSIM_ATTR_MAX              8
 
+#define IEEE80211_TX_MAX_RATES      4
+
 #define VERSION_NR 1
 
 #define IEEE80211_MAX_RATES_PER_TX  5
@@ -122,4 +124,22 @@ struct packed_data {
     int32_t seq;
     //uint32_t len;
     //char data[2048];
+};
+
+struct hwsim_frame {
+    // Frame information
+    int flags;
+    int signal;
+    uint32_t freq;
+    uint64_t cookie;
+
+    int tx_rate_cnt;
+    struct hwsim_tx_rate tx_rates[IEEE80211_TX_MAX_RATES];
+
+    // station, phy address
+    uint8_t *phyaddr;
+    uint8_t *wlanaddr;
+
+    ssize_t data_len;
+    uint8_t *data;
 };
