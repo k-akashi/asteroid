@@ -38,7 +38,6 @@ static int array_size = 0;
 static struct wlan_macaddr *indexer;
 int daemon_flag = FALSE;
 FILE *logfd = NULL;
-int write_vaddr = 0;
 
 int verbose = 0;
 int send_sock;
@@ -46,7 +45,6 @@ struct sockaddr_in daddr;
 struct sockaddr_in laddr;
 
 struct pkt_pool *ppool;
-uint32_t sed_num = 0;
 
 int beacon     = FALSE;
 int tslot_emu  = FALSE;
@@ -71,14 +69,11 @@ usage()
     fprintf(stderr, "    -p PHYSICAL_IFNAME     : ethernet interface\n");
     fprintf(stderr, "    -P DESTINATION_ADDRESS : Destination IP Address\n");
     fprintf(stderr, "    -i VNI                 : Geneve Virtual Network Identifier. default: 5001\n");
-    fprintf(stderr, "    -t                     : enable transmission time calculation. require -r\n");
     fprintf(stderr, "    -r RATE[Mbps]          : emulation link speed. required -t.\n");
     fprintf(stderr, "                                RATE: 6 9 12 18 24 36 48 54\n");
     fprintf(stderr, "    -l LATENCY[us]         : offset transmission time. latency between servers.\n");
     fprintf(stderr, "    -v                     : verbose mode\n");
     fprintf(stderr, "    -f                     : log file name\n");
-    fprintf(stderr, "    -x                     : print packet dump. required -v\n");
-    fprintf(stderr, "    -W                     : backward compatibility mode (for Ubuntu 16.10).\n");
     fprintf(stderr, "    -h                     : help\n");
 }
 
@@ -329,12 +324,12 @@ send_lan(struct asteroid *ctx, struct hwsim_frame *frame)
     memcpy(pdata.wlan_dst_addr, frame->wlan_dst_addr, ETH_ALEN);
     memcpy(pdata.phyaddr, frame->phyaddr, ETH_ALEN);
     pdata.flags = frame->flags;
-    memcpy(&(pdata.tx_rates), frame->tx_rates, sizeof (struct hwsim_tx_rate));
-    pdata.tx_rates.idx = def_rate_idx;
+    pdata.tx_rate_cnt = frame->tx_rate_cnt;
+    memcpy(&(pdata.tx_rates), frame->tx_rates, frame->tx_rate_cnt * sizeof (struct hwsim_tx_rate));
+    pdata.tx_rates[0].idx = def_rate_idx;
 
     pdata.signal = frame->signal;
     pdata.cookie = frame->cookie;
-    printf("cookie: %lu: %lu\n", pdata.cookie, frame->cookie);
     pdata.seq = frame->seq;
 
     // put frame info
@@ -422,13 +417,15 @@ send_wlan(struct asteroid *ctx, struct hwsim_frame *frame)
             nlmsg_free(nlmsg);
             continue;
         }
-        if (nla_put_u32(nlmsg, HWSIM_ATTR_RX_RATE, frame->tx_rates->idx) != 0) {
+        //if (nla_put_u32(nlmsg, HWSIM_ATTR_RX_RATE, frame->tx_rates->idx) != 0) {
+        if (nla_put_u32(nlmsg, HWSIM_ATTR_RX_RATE, 1) != 0) {
             fprintf(logfd, "Error[%s]: HWSIM_ATTR_RX_RATE\n", __func__);
             fflush(logfd);
             nlmsg_free(nlmsg);
             continue;
         }
-        if (nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, frame->signal) != 0) {
+        //if (nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, frame->signal) != 0) {
+        if (nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, -50) != 0) {
             fprintf(logfd, "Error[%s]: HWSIM_ATTR_SIGNAL\n", __func__);
             fflush(logfd);
             nlmsg_free(nlmsg);
@@ -464,30 +461,39 @@ send_tx_ack(struct asteroid *ctx, struct hwsim_frame *frame)
     genlmsg_put(nlmsg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id,
             0, NLM_F_REQUEST, HWSIM_CMD_TX_INFO_FRAME, VERSION_NR);
     
-    if (nla_put(nlmsg, HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN, frame->phyaddr) != 0) {
-        fprintf(logfd, "Error[%s]: HWSIM_ATTR_ADDR_TRANSMITTER\n", __func__);
+    rc = nla_put(nlmsg, HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN, frame->phyaddr);
+    if (rc != 0) {
+        fprintf(logfd, "Error[%s]: HWSIM_ATTR_ADDR_TRANSMITTER: %s(%d)\n",
+                __func__, nl_geterror(rc), rc);
         nlmsg_free(nlmsg);
         return -1;
     }
-    if (nla_put_u32(nlmsg, HWSIM_ATTR_FLAGS, frame->flags) != 0) {
-        fprintf(logfd, "Error[%s]: HWSIM_ATTR_FLAGS\n", __func__);
+    rc = nla_put_u32(nlmsg, HWSIM_ATTR_FLAGS, frame->flags);
+    if (rc != 0) {
+        fprintf(logfd, "Error[%s]: HWSIM_ATTR_FLAGS: %s(%d)\n",
+                __func__, nl_geterror(rc), rc);
         nlmsg_free(nlmsg);
         return -1;
     }
-    if (nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, frame->signal) != 0) {
-        fprintf(logfd, "Error[%s]: HWSIM_ATTR_SIGNAL\n", __func__);
+    rc = nla_put_u32(nlmsg, HWSIM_ATTR_SIGNAL, frame->signal);
+    if (rc != 0) {
+        fprintf(logfd, "Error[%s]: HWSIM_ATTR_SIGNAL: %s(%d)\n",
+                __func__, nl_geterror(rc), rc);
         nlmsg_free(nlmsg);
         return -1;
     }
-    if (nla_put(nlmsg, HWSIM_ATTR_TX_INFO, 
-                frame->tx_rate_cnt * sizeof (struct hwsim_tx_rate), 
-                frame->tx_rates) != 0) {
-        fprintf(logfd, "Error[%s]: HWSIM_ATTR_TX_INFO\n", __func__);
+    rc = nla_put(nlmsg, HWSIM_ATTR_TX_INFO,
+            frame->tx_rate_cnt * sizeof (struct hwsim_tx_rate), frame->tx_rates);
+    if (rc != 0) {
+        fprintf(logfd, "Error[%s]: HWSIM_ATTR_TX_INFO: %s(%d)\n",
+                __func__, nl_geterror(rc), rc);
         nlmsg_free(nlmsg);
         return -1;
     }
-    if (nla_put_u64(nlmsg, HWSIM_ATTR_COOKIE, frame->cookie) != 0) {
-        fprintf(logfd, "Error[%s]: HWSIM_ATTR_COOKIE\n", __func__);
+    rc = nla_put_u64(nlmsg, HWSIM_ATTR_COOKIE, frame->cookie);
+    if (rc != 0) {
+        fprintf(logfd, "Error[%s]: HWSIM_ATTR_COOKIE: %s(%d)\n",
+                __func__, nl_geterror(rc), rc);
         nlmsg_free(nlmsg);
         return -1;
     }
@@ -496,9 +502,9 @@ send_tx_ack(struct asteroid *ctx, struct hwsim_frame *frame)
         fprintf(logfd, "----> Send tx ack   phy: " MAC_FMT "\n",
                 MAC_ARG(frame->phyaddr));
         fflush(logfd);
-    }
-    if (verbose >= 2) {
-        print_frame_info(frame);
+        if (verbose >= 2) {
+            print_frame_info(frame);
+        }
     }
 
     rc = nl_send_auto_complete(ctx->sock, nlmsg);
@@ -765,7 +771,7 @@ wlan_frame_cb(struct nl_msg *nlmsg, void *arg)
             }
             //wlan2wlan(nlmsg, wlan_src_addr, data, len, flags, tx_rate, cookie);
 
-            if (local_ack == TRUE || frame->flags & HWSIM_TX_CTL_NO_ACK) {
+            if (local_ack == TRUE) { // || frame->flags & HWSIM_TX_CTL_NO_ACK) {
                 frame->flags |= HWSIM_TX_STAT_ACK;
                 send_tx_ack(ctx, frame);
             }
@@ -962,11 +968,11 @@ recv_from_lan(void *param)
 
         
         frame->cookie = pdata->cookie;
-        printf("geneve cookie: %lu: %lu\n", pdata->cookie, frame->cookie);
         frame->seq = pdata->seq;
 
-        memcpy((void *)frame->tx_rates, (void *)&(pdata->tx_rates), 
-                IEEE80211_TX_MAX_RATES * sizeof (struct hwsim_tx_rate));
+        frame->tx_rate_cnt = pdata->tx_rate_cnt;
+        memcpy((void *)frame->tx_rates, (void *)pdata->tx_rates, 
+                frame->tx_rate_cnt * sizeof (struct hwsim_tx_rate));
         frame->tx_rates[0].idx = def_rate_idx;
 
         if (verbose >= 1) {
@@ -994,7 +1000,7 @@ recv_from_lan(void *param)
             if (pdata->flags == HWSIM_TX_CTL_NO_ACK) {
                 continue;
             }
-            if (local_ack == FALSE && !(frame->flags & HWSIM_TX_CTL_NO_ACK)) {
+            if (local_ack == FALSE) {
                 //if (pdata->flags == 0) {
                 //    uint8_t *dest_maddr = data + 16;
                 //    if (memcmp(dest_maddr, bcast_addr, 6) == 0) {
@@ -1038,14 +1044,13 @@ recv_from_lan(void *param)
                     nanosleep(&wait_ack_t, NULL);
                     pthread_mutex_unlock(&tslot_lock);
                 }
-                sendto(send_sock, (void *)gnv, pkt_len, 0, (struct sockaddr *)&daddr, addr_len);
+                sendto(send_sock, (void *)gnv, pkt_len + GNV_HDRLEN, 0, (struct sockaddr *)&daddr, addr_len);
                 gnv_free(gnv);
             }
         }
         else if (pdata->type == TX_ACK) {
             // send tx_ack to local interface
             //frame->signal = rate2signal(frame->tx_rates[0].idx);
-            frame->signal = -50;
             send_tx_ack(ctx, frame);
          }
         else {
@@ -1106,15 +1111,6 @@ recv_from_hwsim(void *param)
             if (ifr.ifr_hwaddr.sa_family!=ARPHRD_ETHER) {
                 fprintf(logfd, "not ethernet interface");
                 fflush(logfd);
-            }
-
-            if (write_vaddr) {
-                struct wlan_macaddr *mac = (struct wlan_macaddr *)ifr.ifr_hwaddr.sa_data;
-                put_wlan_macaddr(*mac, i);
-                if (verbose >= 1) {
-                    fprintf(logfd, "local interface: %s, MAC Address: " MAC_FMT "\n",
-                            ifp->devname, MAC_ARG(mac->addr));
-                }
             }
             else {
                 struct wlan_macaddr mac;
@@ -1189,7 +1185,7 @@ main(int argc, char **argv)
 
     struct asteroid *ctx;
 
-    while ((opt = getopt(argc, argv, "abc:dhi:l:f:p:P:r:tvw:W")) != -1) {
+    while ((opt = getopt(argc, argv, "abc:dhi:l:f:p:P:r:vw:")) != -1) {
         switch (opt) {
             case 'a':
                 local_ack = TRUE;
@@ -1222,10 +1218,8 @@ main(int argc, char **argv)
                 outer_addr = optarg;
                 break;
             case 'r':
-                link_rate = atoi(optarg);
-                break;
-            case 't':
                 tslot_emu = TRUE;
+                link_rate = atoi(optarg);
                 break;
             case 'v':
                 verbose++;
@@ -1241,9 +1235,6 @@ main(int argc, char **argv)
                 }
                 strcpy(in_iflist->devname, optarg);
                 in_ifnum++;
-                break;
-            case 'W':
-                write_vaddr = 1;
                 break;
             default:
                 usage();

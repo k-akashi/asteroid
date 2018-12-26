@@ -148,7 +148,8 @@ struct packed_data {
     uint8_t phyaddr[6];
     uint8_t phyaddr_pad[2];
     uint32_t flags;
-    struct hwsim_tx_rate tx_rates;
+    int tx_rate_cnt;
+    struct hwsim_tx_rate tx_rates[IEEE80211_TX_MAX_RATES];
     uint64_t signal;
     uint64_t cookie;
     int32_t seq;
