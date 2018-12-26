@@ -9,15 +9,31 @@
 #define HWSIM_CMD_FRAME             2
 #define HWSIM_CMD_TX_INFO_FRAME     3
 
-#define HWSIM_ATTR_ADDR_RECEIVER    1
-#define HWSIM_ATTR_ADDR_TRANSMITTER 2
-#define HWSIM_ATTR_FRAME            3
-#define HWSIM_ATTR_FLAGS            4
-#define HWSIM_ATTR_RX_RATE          5
-#define HWSIM_ATTR_SIGNAL           6
-#define HWSIM_ATTR_TX_INFO          7
-#define HWSIM_ATTR_COOKIE           8
-#define HWSIM_ATTR_MAX              8
+enum {
+    HWSIM_ATTR_UNSPEC,
+    HWSIM_ATTR_ADDR_RECEIVER,
+    HWSIM_ATTR_ADDR_TRANSMITTER,
+    HWSIM_ATTR_FRAME,
+    HWSIM_ATTR_FLAGS,
+    HWSIM_ATTR_RX_RATE,
+    HWSIM_ATTR_SIGNAL,
+    HWSIM_ATTR_TX_INFO,
+    HWSIM_ATTR_COOKIE,
+    HWSIM_ATTR_CHANNELS,
+    HWSIM_ATTR_RADIO_ID,
+    HWSIM_ATTR_REG_HINT_ALPHA2,
+    HWSIM_ATTR_REG_CUSTOM_REG,
+    HWSIM_ATTR_REG_STRICT_REG,
+    HWSIM_ATTR_SUPPORT_P2P_DEVICE,
+    HWSIM_ATTR_USE_CHANCTX,
+    HWSIM_ATTR_DESTROY_RADIO_ON_CLOSE,
+    HWSIM_ATTR_RADIO_NAME,
+    HWSIM_ATTR_NO_VIF,
+    HWSIM_ATTR_FREQ,
+    HWSIM_ATTR_PAD,
+    __HWSIM_ATTR_MAX,
+};
+#define HWSIM_ATTR_MAX (__HWSIM_ATTR_MAX - 1)
 
 #define IEEE80211_TX_MAX_RATES      4
 
@@ -113,13 +129,27 @@ struct hwsim_tx_rate {
     unsigned char pad[2];
 };
 
+struct ieee80211_hdr {
+    uint8_t frame_control[2];
+    uint8_t duration_id[2];
+    uint8_t addr1[ETH_ALEN];
+    uint8_t addr2[ETH_ALEN];
+    uint8_t addr3[ETH_ALEN];
+    uint8_t seq_ctrl[2];
+    uint8_t addr4[ETH_ALEN];
+};
+
 struct packed_data {
     int32_t type; 
-    struct wlan_macaddr src;
-    struct wlan_macaddr tx;
-    unsigned char pad[2];
+    uint8_t wlan_src_addr[6];
+    uint8_t wlan_src_addr_pad[2];
+    uint8_t wlan_dst_addr[6];
+    uint8_t wlan_dst_addr_pad[2];
+    uint8_t phyaddr[6];
+    uint8_t phyaddr_pad[2];
     uint32_t flags;
     struct hwsim_tx_rate tx_rates;
+    uint64_t signal;
     uint64_t cookie;
     int32_t seq;
     //uint32_t len;
@@ -128,18 +158,21 @@ struct packed_data {
 
 struct hwsim_frame {
     // Frame information
-    int flags;
-    int signal;
+    uint32_t flags;
+    int32_t signal;
     uint32_t freq;
     uint64_t cookie;
+    int32_t seq;
 
     int tx_rate_cnt;
     struct hwsim_tx_rate tx_rates[IEEE80211_TX_MAX_RATES];
 
     // station, phy address
-    uint8_t *phyaddr;
-    uint8_t *wlanaddr;
+    uint8_t phyaddr[ETH_ALEN];
+    uint8_t wlan_src_addr[ETH_ALEN];
+    uint8_t wlan_dst_addr[ETH_ALEN];
 
     ssize_t data_len;
-    uint8_t *data;
+    uint8_t data[0];
+
 };
