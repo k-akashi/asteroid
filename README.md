@@ -68,7 +68,7 @@ In order to communicate between the radio interfaces of each node, it is necessa
 ## Run Asteroid
 
 ```bash
-./bin/asteroid -w <WIRELESS_INERFACE> -p <PHYSICAL_INTERFACE> [-P DESTINATION_ADDRESS] [-i vni] [-d] [-v [-x]] [-t -r RATE]
+./bin/asteroid -a -w <WIRELESS_INERFACE> -p <PHYSICAL_INTERFACE> [-P DESTINATION_ADDRESS] [-i vni] [-d] [-v [-x]] [-t -r RATE]
 -P: Destination Address of physical interface
 -d: Daemon mode
 -v: verbose mode, -x option is hex dump
