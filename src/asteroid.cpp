@@ -49,7 +49,7 @@ struct pkt_pool *ppool;
 int beacon     = FALSE;
 int tslot_emu  = FALSE;
 pthread_mutex_t tslot_lock = PTHREAD_MUTEX_INITIALIZER;
-int local_ack  = FALSE;
+int local_ack  = TRUE;
 int link_rate = 54;
 int def_rate_idx = 11;
 int ofdm_idx = -1;
@@ -1188,7 +1188,7 @@ main(int argc, char **argv)
     while ((opt = getopt(argc, argv, "abc:dhi:l:f:p:P:r:vw:")) != -1) {
         switch (opt) {
             case 'a':
-                local_ack = TRUE;
+                local_ack = FALSE;
                 break;
             case 'b':
                 beacon = TRUE;
