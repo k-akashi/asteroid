@@ -1,3 +1,6 @@
+#ifndef __GENEVE_H__
+#define __GENEVE_H__
+
 #define GENEVE_VER 0
 #define GNV_PORT 6081
 #define DEFAULT_VNI 5001
@@ -99,3 +102,5 @@ extern struct geneve_header *get_gnv_hdr(uint8_t *pkt);
 extern struct geneve_option *get_gnv_opt(uint8_t *pkt);
 extern uint32_t get_gnv_vni(struct geneve_header *gnv_hdr);
 extern uint8_t *get_gnv_payload(uint8_t *pkt);
+
+#endif // __GENEVE_H__

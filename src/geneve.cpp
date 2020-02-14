@@ -6,23 +6,25 @@
 
 #include "geneve.hpp"
 
-uint8_t *gnv_alloc()
+uint8_t *
+gnv_alloc()
 {
     uint8_t *pkt;
 
     //pkt = (uint8_t *)malloc(pkt_len + geneve_len);
-    pkt = (uint8_t *)malloc(9000);
-    memset(pkt, 0, 9000);
+    pkt = (uint8_t *)calloc(9000, 1);
 
     return pkt;
 }
 
-void gnv_free(uint8_t *pkt)
+void
+gnv_free(uint8_t *pkt)
 {
     free(pkt);
 }
 
-uint8_t * add_gnv_hdr(uint8_t *pkt, uint32_t vni, uint16_t proto_type)
+uint8_t *
+add_gnv_hdr(uint8_t *pkt, uint32_t vni, uint16_t proto_type)
 {
     struct geneve_header gnv_hdr;
 
@@ -42,7 +44,8 @@ uint8_t * add_gnv_hdr(uint8_t *pkt, uint32_t vni, uint16_t proto_type)
     return pkt;
 }
 
-int add_gnv_opt(uint8_t *pkt, uint8_t type, uint8_t opt_len, uint8_t *opt)
+int
+add_gnv_opt(uint8_t *pkt, uint8_t type, uint8_t opt_len, uint8_t *opt)
 {
     struct geneve_header *gnv_hdr;
     struct geneve_option *gnv_opt;
@@ -63,14 +66,15 @@ int add_gnv_opt(uint8_t *pkt, uint8_t type, uint8_t opt_len, uint8_t *opt)
 
     gnv_opt->opt_cls  = 0;
     gnv_opt->type     = type;
-    gnv_opt->len      = opt_len;
+    gnv_opt->len      = opt_len / 4;
     gnv_opt->reserved = 0;
     memcpy(gnv_opt + 1, opt, opt_len);
 
     return GNV_HDRLEN + (gnv_hdr->opt_len * 4);
 }
 
-int add_gnv_payload(uint8_t *pkt, uint8_t *data, uint32_t len)
+int
+add_gnv_payload(uint8_t *pkt, uint8_t *data, uint32_t len)
 {
     struct geneve_header *gnv_hdr;
 
@@ -80,7 +84,8 @@ int add_gnv_payload(uint8_t *pkt, uint8_t *data, uint32_t len)
     return GNV_HDRLEN + (gnv_hdr->opt_len * 4) + len;
 }
 
-struct geneve_option *get_gnv_opt(uint8_t *pkt)
+struct geneve_option *
+get_gnv_opt(uint8_t *pkt)
 {
     struct geneve_option *gnv_opt;
 
@@ -89,7 +94,8 @@ struct geneve_option *get_gnv_opt(uint8_t *pkt)
     return gnv_opt;
 }
 
-uint32_t get_gnv_vni(struct geneve_header *gnv_hdr)
+uint32_t 
+get_gnv_vni(struct geneve_header *gnv_hdr)
 {
     uint32_t vni;
     vni = (gnv_hdr->vni[0] << 16) + (gnv_hdr->vni[1] << 8) + (gnv_hdr->vni[2]);
@@ -97,7 +103,8 @@ uint32_t get_gnv_vni(struct geneve_header *gnv_hdr)
     return vni;
 }
 
-uint8_t *get_gnv_payload(uint8_t *pkt)
+uint8_t *
+get_gnv_payload(uint8_t *pkt)
 {
     uint8_t *data;
     struct geneve_header *gnv_hdr;
@@ -108,7 +115,8 @@ uint8_t *get_gnv_payload(uint8_t *pkt)
     return data;
 }
 
-uint8_t *encap_geneve(uint8_t *pkt, uint32_t pkt_len, int32_t vni)
+uint8_t *
+encap_geneve(uint8_t *pkt, uint32_t pkt_len, int32_t vni)
 {
     uint8_t *epkt;
     int geneve_len;

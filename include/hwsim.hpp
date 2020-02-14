@@ -1,3 +1,6 @@
+#ifndef __HWSIM_H__
+#define __HWSIM_H__
+
 #define FALSE   0
 #define TRUE    1
 
@@ -101,6 +104,8 @@ enum {
 #define MAC_FCS_LEN     4
 #define MAC_LLC_LEN     8
 
+#define HWSIM_TX_RATE_SZ      sizeof (struct hwsim_tx_rate)
+
 static const uint32_t plcp_tb[] = {
     192000, // 11b
     20000,  // 11a
@@ -122,12 +127,12 @@ struct radiotap_hdr {
 struct wlan_macaddr {
     unsigned char addr[6];
 };
+struct wlan_macaddr phy_addr_default = { 0x42, 0, 0, 0, 0, 0 };
 
 struct hwsim_tx_rate {
     int8_t idx;
     uint8_t count;
-    unsigned char pad[2];
-};
+} __attribute__((__packed__));
 
 struct ieee80211_hdr {
     uint8_t frame_control[2];
@@ -177,3 +182,5 @@ struct hwsim_frame {
     uint8_t data[0];
 
 };
+
+#endif // __HWSIM_H__

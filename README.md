@@ -6,6 +6,15 @@
 apt-get install libnl-3-200 libnl-3-dev libnl-genl-3-200 libnl-genl-3-dev libnl-route-3-200 libnl-route-3-dev libjson-c-dev libjson-c2
 ```
 
+install json11 library
+```bash
+git clone https://github.com/dropbox/json11.git
+cd json11 
+cmake .
+make
+sudo make install
+```
+
 ## Compile
 
 ```bash
