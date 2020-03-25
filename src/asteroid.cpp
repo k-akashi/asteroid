@@ -31,8 +31,8 @@
 #include <stdio.h>
 
 #include "asteroid.hpp"
-#include "per.hpp"
-#include "path_loss.hpp"
+//#include "per.hpp"
+//#include "path_loss.hpp"
 #include "geneve.hpp"
 #include "config.hpp"
 #include "hwsim.hpp"
@@ -998,15 +998,15 @@ recv_from_lan(void *param)
                     MAC_ARG(frame->phyaddr));
         }
 
-        if (ctx->wem_mode == true) {
-            int src_id = 0;
-            int snr = -90;
-            double per;
+        //if (ctx->wem_mode == true) {
+        //    int src_id = 0;
+        //    int snr = -90;
+        //    double per;
 
-            snr = get_snr(src_id);
-            per = get_error_prob_from_snr(snr, frame->tx_rates[0].idx, 
-                    2412, frame->data_len);
-        }
+        //    snr = get_snr(src_id);
+        //    per = get_error_prob_from_snr(snr, frame->tx_rates[0].idx, 
+        //            2412, frame->data_len);
+        //}
 
 
         if (pdata->type == TX) {
@@ -1490,11 +1490,11 @@ asteroid_loop(struct asteroid_ctx *ctx)
         perror("pthread_create");
     }
 
-    if(ctx->pif != NULL) {
-        if (pthread_create(&remote_th, NULL, recv_from_lan, (void *)ctx) != 0) {
-            perror("pthread_create");
-        }
-    }
+    //if(ctx->pif != NULL) {
+    //    if (pthread_create(&remote_th, NULL, recv_from_lan, (void *)ctx) != 0) {
+    //        perror("pthread_create");
+    //    }
+    //}
 
     while (1) {
         sleep(1);
