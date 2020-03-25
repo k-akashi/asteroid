@@ -31,8 +31,6 @@
 #include <stdio.h>
 
 #include "asteroid.hpp"
-//#include "per.hpp"
-//#include "path_loss.hpp"
 #include "geneve.hpp"
 #include "config.hpp"
 #include "hwsim.hpp"
@@ -998,17 +996,6 @@ recv_from_lan(void *param)
                     MAC_ARG(frame->phyaddr));
         }
 
-        //if (ctx->wem_mode == true) {
-        //    int src_id = 0;
-        //    int snr = -90;
-        //    double per;
-
-        //    snr = get_snr(src_id);
-        //    per = get_error_prob_from_snr(snr, frame->tx_rates[0].idx, 
-        //            2412, frame->data_len);
-        //}
-
-
         if (pdata->type == TX) {
             if (tslot_emu) {
                 uint8_t *frame_type = frame->data;
@@ -1510,7 +1497,6 @@ init_asteroid_ctx(struct asteroid_ctx *ctx)
     ctx->pif = NULL;
     ctx->o_port = 0;
     ctx->verbose = 0;
-    ctx->wem_mode = false;
     ctx->daemonize = false;
 
     ctx->vni = DEFAULT_VNI;
@@ -1597,9 +1583,6 @@ main(int argc, char **argv)
                 }
                 strcpy(in_iflist->devname, optarg);
                 ctx->ifnum++;
-                break;
-            case 'W':
-                ctx->wem_mode = true;
                 break;
             default:
                 usage();
